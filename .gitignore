@@ -1,0 +1,21 @@
+cd "C:\Users\wijes\Videos\aws-monitor (1)\aws-monitor"
+notepad .gitignore
+```
+
+Paste this inside and save:
+```
+# Dependencies
+node_modules/
+
+# Environment variables - NEVER commit this
+backend/.env
+
+# Build output
+frontend/dist/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
