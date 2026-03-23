@@ -89,19 +89,32 @@ jobs:
             ./frontend/dist/ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/aws-monitor/frontend/dist/
 
       - name: Restart app on EC2
-        run: |
-          ssh -i ~/.ssh/deploy_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            set -e
-            cd ~/aws-monitor/backend
-            npm install --production
-            pm2 describe aws-monitor > /dev/null 2>&1 \
-              && pm2 restart aws-monitor \
-              || pm2 start server.js --name aws-monitor
-            pm2 save
-            sudo systemctl reload nginx
-            echo "✅ Deployment complete!"
-            pm2 status
-          EOF
+      run: |
+        ssh -i ~/.ssh/deploy_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          set -e
+
+          # ✅ Fix: load full bash profile so npm/node/pm2 are available
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          source /etc/profile
+          export PATH=$PATH:/usr/local/bin:/usr/bin
+
+          echo "Node: $(node -v)"
+          echo "NPM: $(npm -v)"
+          echo "PM2: $(pm2 -v)"
+
+          cd ~/aws-monitor/backend
+          npm install --production
+
+          pm2 describe aws-monitor > /dev/null 2>&1 \
+            && pm2 restart aws-monitor \
+            || pm2 start server.js --name aws-monitor
+
+          pm2 save
+          sudo systemctl reload nginx
+          echo "✅ Deployment complete!"
+          pm2 status
+        EOF
 
       - name: Health check
         run: |
