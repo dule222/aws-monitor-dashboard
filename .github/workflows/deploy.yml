@@ -1,0 +1,25 @@
+name: 🚀 Deploy AWS Monitor
+on:
+  push:
+    branches: [main]
+env:
+  NODE_VERSION: '18'
+jobs:
+  test:
+    name: ✅ Test
+    runs-on: ubuntu-latest        # ❌ was windows-latest → always use ubuntu for Node apps
+    steps:                        # ❌ missing "steps:" entirely
+      - uses: actions/checkout@v4
+      - name: Setup Node.js       # ❌ was "set-up Node.js" (minor but keep it clean)
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}  # ❌ was node_version (underscore) → must be hyphen
+                                                 # ❌ was NODE_VERSIION (double I typo)
+      - name: Install backend deps
+        run: cd backend && npm install           # ❌ was "uses" → must be "run" for terminal commands
+
+      - name: Install frontend deps
+        run: cd frontend && npm install          # ❌ was "uses" → must be "run"
+
+      - name: Check backend syntax              # ❌ was "syntex" → syntax
+        run: cd backend && node --check server.js && echo "✅ Syntax OK"  # ❌ was "uses" → "run"
