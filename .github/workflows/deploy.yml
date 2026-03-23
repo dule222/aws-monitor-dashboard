@@ -1,25 +1,111 @@
 name: 🚀 Deploy AWS Monitor
+
 on:
   push:
     branches: [main]
+
 env:
   NODE_VERSION: '18'
+
 jobs:
   test:
     name: ✅ Test
-    runs-on: ubuntu-latest        # ❌ was windows-latest → always use ubuntu for Node apps
-    steps:                        # ❌ missing "steps:" entirely
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@v4
-      - name: Setup Node.js       # ❌ was "set-up Node.js" (minor but keep it clean)
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}  # ❌ was node_version (underscore) → must be hyphen
-                                                 # ❌ was NODE_VERSIION (double I typo)
+          node-version: ${{ env.NODE_VERSION }}
+
       - name: Install backend deps
-        run: cd backend && npm install           # ❌ was "uses" → must be "run" for terminal commands
+        run: cd backend && npm install
 
       - name: Install frontend deps
-        run: cd frontend && npm install          # ❌ was "uses" → must be "run"
+        run: cd frontend && npm install
 
-      - name: Check backend syntax              # ❌ was "syntex" → syntax
-        run: cd backend && node --check server.js && echo "✅ Syntax OK"  # ❌ was "uses" → "run"
+      - name: Check backend syntax
+        run: cd backend && node --check server.js && echo "✅ Syntax OK"
+
+  build:
+    name: 🔨 Build Frontend
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install & build frontend
+        run: |
+          cd frontend
+          npm install
+          npm run build
+        env:
+          VITE_AWS_REGION: ${{ secrets.VITE_AWS_REGION }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 1
+
+  deploy:
+    name: 🚀 Deploy to EC2
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key.pem
+          chmod 600 ~/.ssh/deploy_key.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy backend to EC2
+        run: |
+          rsync -avz --exclude='node_modules' --exclude='.env' \
+            -e "ssh -i ~/.ssh/deploy_key.pem" \
+            ./backend/ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/aws-monitor/backend/
+
+      - name: Deploy frontend to EC2
+        run: |
+          rsync -avz \
+            -e "ssh -i ~/.ssh/deploy_key.pem" \
+            ./frontend/dist/ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/aws-monitor/frontend/dist/
+
+      - name: Restart app on EC2
+        run: |
+          ssh -i ~/.ssh/deploy_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            set -e
+            cd ~/aws-monitor/backend
+            npm install --production
+            pm2 describe aws-monitor > /dev/null 2>&1 \
+              && pm2 restart aws-monitor \
+              || pm2 start server.js --name aws-monitor
+            pm2 save
+            sudo systemctl reload nginx
+            echo "✅ Deployment complete!"
+            pm2 status
+          EOF
+
+      - name: Health check
+        run: |
+          sleep 5
+          curl -f http://${{ secrets.EC2_HOST }}/health \
+            && echo "✅ App is live!" \
+            || echo "❌ Health check failed"
